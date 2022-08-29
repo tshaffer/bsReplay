@@ -1438,7 +1438,8 @@ Sub CheckBLCStatus(controlPort as object, channel% as integer)
     BSP.ExecuteSetAllAudioOutputsCommand = ExecuteSetAllAudioOutputsCommand
 
     BSP.EventLoop = EventLoop
-    
+    BSP.RecordEvent = RecordEvent
+    BSP.PlaybackEvent = ExecutePlaybackEvent
     BSP.GetControlEvent = GetControlEvent
 
     BSP.SetAudioMode = SetAudioMode
@@ -23283,77 +23284,13 @@ Sub EventLoop()
 
     eventHandled = false
 
-    if globalAA.recordEvents then
-
-      print "EVENT TYPE"
-      print type(msg)
-
-      event = msg
-
-      if RecordEvent(type(event)) then
-
-        utcDateTime = m.systemTime.GetUtcDateTime()
-        eventDateTime = utcDateTime.ToIsoString()
-
-        ' JSON instead of text?
-        'recordedEvent = {}
-        'recordedEvent.timestamp = m.systemTime.GetLocalDateTime().GetString()
-
-        ' userData????
-
-        recordedEventsFile = globalAA.recordedEventsFile
-
-        if type(event) = "roControlDown" then
-          gpioNum = event.GetInt()
-          recordedEventsFile.SendLine("T=" + eventDateTime + "!!!!" + "E=roControlDown" + "!!!!" + "D=" + stri(gpioNum) + "!!!!" + "U=" + event.GetUserData())
-        else if type(event) = "roControlUp" then
-          gpioNum = event.GetInt()
-          recordedEventsFile.SendLine("T=" + eventDateTime + "!!!!" + "E=roControlUp" + "!!!!" + "D=" + stri(gpioNum) + "!!!!" + "U=" + event.GetUserData())
-        else if type(event) = "bp900AUserEvent" then
-          stop
-        else if type(event) = "roStorageAttached" then
-          storagePath$ = event.GetString()
-          recordedEventsFile.SendLine("T=" + eventDateTime + "!!!!" + "E=roStorageAttached" + "!!!!" + "D=" + storagePath$)
-        else if type(event) = "roHttpEvent" then
-          recordedEventsFile.SendLine("T=" + eventDateTime + "!!!!" + "E=roHttpEvent")
-        else if type(event) = "roControlCloudMessageEvent" then
-          recordedEventsFile.SendLine("T=" + eventDateTime + "!!!!" + "E=roControlCloudMessageEvent")
-        else
-          stop
-        endif
-
-        recordedEventsFile.AsyncFlush()
-    
+    if globalAA.recordEvents then   
+      if IsEventRecordable(type(msg)) then
+        m.RecordEvent(msg)
       endif
-
     else if globalAA.playbackEventsMode then
-
-      if type(msg) = "roTimerEvent" and msg.GetUserData() = "playbackEventsTimer" then
-
-        playbackEvent = globalAA.playbackEvents[globalAA.playbackEventIndex]
-        
-        eventType = playbackEvent.eventType
-        if playbackEvent.eventData <> invalid then
-          eventData = playbackEvent.eventData
-        endif
-
-        if eventType = "roControlDown" or eventType = "roControlUp" then        
-          ev = m.GetControlEvent(eventType, playbackEvent.userData, int(val(playbackEvent.eventData)))
-          m.msgPort.PostMessage(ev)
-          eventHandled = true
-        endif
-
-        globalAA.playbackEventIndex = globalAA.playbackEventIndex + 1
-
-        if globalAA.playbackEventIndex < globalAA.playbackEvents.Count() then
-          msecUntilNextEvent = globalAA.playbackEvents[globalAA.playbackEventIndex].timeSinceLastEvent
-          globalAA.playbackEventsTimer.SetElapsed(0, msecUntilNextEvent)
-          globalAA.playbackEventsTimer.Start()
-        endif
-        
-      endif
+      eventHandled = m.PlaybackEvent(msg)
     endif
-
 
     if not eventHandled then
 
@@ -23436,40 +23373,6 @@ Sub EventLoop()
   end while
   
 end sub
-
-
-Function GetInt() as integer
-  stop
-  return m.EventData
-end function
-
-
-Function GetControlEvent(eventType as string, userData as string, eventData as integer) as object
-
-  ev = CreateObject(eventType)
-  ev.SetUserData(userData)
-  ev.SetInt(eventData)
-  return ev
-
-end function
-
-
-Function RecordEvent(eventType as string) as boolean
-
-  if eventType = "roControlDown" or eventType = "roControlUp" or eventType = "bp900AUserEvent" then 
-    return true
-  endif
-  
-  ' do not record
-  '   roStorageAttached - ambiguous
-  '   roVideoEvent
-  '   roTimerEvent
-  '   roHttpEvent - ambiguous?
-  '   roControlCloudMessageEvent
-
-  return false
-
-end function
 
 
 Function ExecuteSwitchPresentationCommand(presentationName$ as string) as boolean
@@ -33594,5 +33497,107 @@ Sub ProcessBrightWallUdpMessage(udpMessagePayload$ as string)
   endif
 
 end sub
+
+
+'region Record / Playback
+
+Function GetControlEvent(eventType as string, userData as string, eventData as integer) as object
+
+  ev = CreateObject(eventType)
+  ev.SetUserData(userData)
+  ev.SetInt(eventData)
+  return ev
+
+end function
+
+
+Function IsEventRecordable(eventType as string) as boolean
+
+  if eventType = "roControlDown" or eventType = "roControlUp" or eventType = "bp900AUserEvent" then 
+    return true
+  endif
+  
+  ' do not record
+  '   roStorageAttached - ambiguous
+  '   roVideoEvent
+  '   roTimerEvent
+  '   roHttpEvent - ambiguous?
+  '   roControlCloudMessageEvent
+
+  return false
+
+end function
+
+
+Sub RecordEvent(event as object)
+
+  globalAA = getGlobalAA()
+
+  utcDateTime = m.systemTime.GetUtcDateTime()
+  eventDateTime = utcDateTime.ToIsoString()
+
+  recordedEventsFile = globalAA.recordedEventsFile
+
+  if type(event) = "roControlDown" then
+    gpioNum = event.GetInt()
+    recordedEventsFile.SendLine("T=" + eventDateTime + "!!!!" + "E=roControlDown" + "!!!!" + "D=" + stri(gpioNum) + "!!!!" + "U=" + event.GetUserData())
+  else if type(event) = "roControlUp" then
+    gpioNum = event.GetInt()
+    recordedEventsFile.SendLine("T=" + eventDateTime + "!!!!" + "E=roControlUp" + "!!!!" + "D=" + stri(gpioNum) + "!!!!" + "U=" + event.GetUserData())
+  else if type(event) = "bp900AUserEvent" then
+    stop
+  else if type(event) = "roStorageAttached" then
+    storagePath$ = event.GetString()
+    recordedEventsFile.SendLine("T=" + eventDateTime + "!!!!" + "E=roStorageAttached" + "!!!!" + "D=" + storagePath$)
+  else if type(event) = "roHttpEvent" then
+    recordedEventsFile.SendLine("T=" + eventDateTime + "!!!!" + "E=roHttpEvent")
+  else if type(event) = "roControlCloudMessageEvent" then
+    recordedEventsFile.SendLine("T=" + eventDateTime + "!!!!" + "E=roControlCloudMessageEvent")
+  else
+    stop
+  endif
+
+  recordedEventsFile.AsyncFlush()
+
+end sub
+
+
+Function ExecutePlaybackEvent(event) as boolean
+
+  globalAA = getGlobalAA()
+
+  eventHandled = false
+
+  if type(event) = "roTimerEvent" and event.GetUserData() = "playbackEventsTimer" then
+
+    playbackEvent = globalAA.playbackEvents[globalAA.playbackEventIndex]
+    
+    eventType = playbackEvent.eventType
+    if playbackEvent.eventData <> invalid then
+      eventData = playbackEvent.eventData
+    endif
+
+    if eventType = "roControlDown" or eventType = "roControlUp" then        
+      ev = m.GetControlEvent(eventType, playbackEvent.userData, int(val(playbackEvent.eventData)))
+      m.msgPort.PostMessage(ev)
+      eventHandled = true
+    endif
+
+    globalAA.playbackEventIndex = globalAA.playbackEventIndex + 1
+
+    if globalAA.playbackEventIndex < globalAA.playbackEvents.Count() then
+      msecUntilNextEvent = globalAA.playbackEvents[globalAA.playbackEventIndex].timeSinceLastEvent
+      globalAA.playbackEventsTimer.SetElapsed(0, msecUntilNextEvent)
+      globalAA.playbackEventsTimer.Start()
+    endif
+    
+  endif
+
+  return eventHandled
+
+end function
+
+
+'endregion
 
 
