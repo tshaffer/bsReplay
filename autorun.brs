@@ -509,7 +509,7 @@ Sub RunBsp(sysFlags as object, sysInfo as object, diagnosticCodes as object, sys
   
   BSP.bpInputPorts[0] = CreateObject("roControlPort", "TouchBoard-0-GPIO")
   if type(BSP.bpInputPorts[0]) = "roControlPort" then
-    BSP.bpInputPorts[0].SetUserData("TouchBoard-0-GPIO")
+    BSP.bpInputPorts[0].SetUserData(BuildUserData("bpEvent", "TouchBoard-0-GPIO"))
     BSP.bpInputPortIdentities[0] = stri(BSP.bpInputPorts[0].GetIdentity())
     BSP.bpInputPorts[0].SetPort(msgPort)
     properties = BSP.bpInputPorts[0].GetProperties()
@@ -519,7 +519,7 @@ Sub RunBsp(sysFlags as object, sysInfo as object, diagnosticCodes as object, sys
   
   BSP.bpInputPorts[1] = CreateObject("roControlPort", "TouchBoard-1-GPIO")
   if type(BSP.bpInputPorts[1]) = "roControlPort" then
-    BSP.bpInputPorts[1].SetUserData("TouchBoard-1-GPIO")
+    BSP.bpInputPorts[1].SetUserData(BuildUserData("bpEvent", "TouchBoard-1-GPIO"))
     BSP.bpInputPortIdentities[1] = stri(BSP.bpInputPorts[1].GetIdentity())
     BSP.bpInputPorts[1].SetPort(msgPort)
     properties = BSP.bpInputPorts[1].GetProperties()
@@ -529,7 +529,7 @@ Sub RunBsp(sysFlags as object, sysInfo as object, diagnosticCodes as object, sys
   
   BSP.bpInputPorts[2] = CreateObject("roControlPort", "TouchBoard-2-GPIO")
   if type(BSP.bpInputPorts[2]) = "roControlPort" then
-    BSP.bpInputPorts[2].SetUserData("TouchBoard-2-GPIO")
+    BSP.bpInputPorts[2].SetUserData(BuildUserData("bpEvent", "TouchBoard-2-GPIO"))
     BSP.bpInputPortIdentities[2] = stri(BSP.bpInputPorts[2].GetIdentity())
     BSP.bpInputPorts[2].SetPort(msgPort)
     properties = BSP.bpInputPorts[2].GetProperties()
@@ -539,7 +539,7 @@ Sub RunBsp(sysFlags as object, sysInfo as object, diagnosticCodes as object, sys
   
   BSP.bpInputPorts[3] = CreateObject("roControlPort", "TouchBoard-3-GPIO")
   if type(BSP.bpInputPorts[3]) = "roControlPort" then
-    BSP.bpInputPorts[3].SetUserData("TouchBoard-3-GPIO")
+    BSP.bpInputPorts[3].SetUserData(BuildUserData("bpEvent", "TouchBoard-3-GPIO"))
     BSP.bpInputPortIdentities[3] = stri(BSP.bpInputPorts[3].GetIdentity())
     BSP.bpInputPorts[3].SetPort(msgPort)
     properties = BSP.bpInputPorts[3].GetProperties()
@@ -22971,9 +22971,9 @@ Sub BPEventHandler(event as object)
     if type(event) = "roControlDown" then
 
       buttonPanelIndex$ = StripLeadingSpaces(stri(m.buttonPanelIndex%))
-      userData = "TouchBoard-" + buttonPanelIndex$ + "-GPIO"
+      id = "TouchBoard-" + buttonPanelIndex$ + "-GPIO"
 
-      if event.GetUserData() = userData and m.buttonNumber% = event.GetInt() then
+      if UserDataMatches(event.GetUserData(), "bpEvent", id) and m.buttonNumber% = event.GetInt() then
 
         m.bsp.diagnostics.PrintDebug("BP control down" + str(event.GetInt()))
         
@@ -23001,10 +23001,10 @@ Sub BPEventHandler(event as object)
     if type(event) = "roControlUp" then
 
       buttonPanelIndex$ = StripLeadingSpaces(stri(m.buttonPanelIndex%))
-      userData = "TouchBoard-" + buttonPanelIndex$ + "-GPIO"
+      id = "TouchBoard-" + buttonPanelIndex$ + "-GPIO"
 
-      if event.GetUserData() = userData and m.buttonNumber% = event.GetInt() then
-      
+      if UserDataMatches(event.GetUserData(), "bpEvent", id) and m.buttonNumber% = event.GetInt() then
+
         m.bsp.diagnostics.PrintDebug("BP control up" + str(event.GetInt()))
         
         ' if continuous, stop and destroy the timer
@@ -33420,6 +33420,7 @@ end sub
 
 'region Record / Playback
 
+' TEDTODOREPLAY - refactor
 Sub InitializeRecordPlayback()
 
   globalAA = getGlobalAA()
@@ -33515,7 +33516,7 @@ Sub InitializeRecordPlayback()
 
           if numTokens > 3 then
             if tokens[3].mid(0, 2) = "U=" then
-              playbackEvent.userData = tokens[3].mid(2)
+              playbackEvent.userData = ParseJson(tokens[3].mid(2))
             endif
           endif
 
@@ -33551,7 +33552,7 @@ Sub InitializePlaybackEventsTimer()
 end sub
 
 
-Function GetControlEvent(eventType as string, userData as string, eventData as integer) as object
+Function GetControlEvent(eventType as string, userData as object, eventData as integer) as object
 
   ev = CreateObject(eventType)
   ev.SetUserData(userData)
@@ -33590,10 +33591,14 @@ Sub RecordEvent(event as object)
 
   if type(event) = "roControlDown" then
     gpioNum = event.GetInt()
-    recordedEventsFile.SendLine("T=" + eventDateTime + "!!!!" + "E=roControlDown" + "!!!!" + "D=" + stri(gpioNum) + "!!!!" + "U=" + event.GetUserData())
+    ' TEDTODOREPLAY
+    userData$ = FormatJson(event.getUserData())
+    recordedEventsFile.SendLine("T=" + eventDateTime + "!!!!" + "E=roControlDown" + "!!!!" + "D=" + stri(gpioNum) + "!!!!" + "U=" + userData$)
   else if type(event) = "roControlUp" then
     gpioNum = event.GetInt()
-    recordedEventsFile.SendLine("T=" + eventDateTime + "!!!!" + "E=roControlUp" + "!!!!" + "D=" + stri(gpioNum) + "!!!!" + "U=" + event.GetUserData())
+    ' TEDTODOREPLAY
+    userData$ = FormatJson(event.getUserData())
+    recordedEventsFile.SendLine("T=" + eventDateTime + "!!!!" + "E=roControlUp" + "!!!!" + "D=" + stri(gpioNum) + "!!!!" + "U=" + userData$)
   else if type(event) = "bp900AUserEvent" then
     stop
   else if type(event) = "roStorageAttached" then
