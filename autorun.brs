@@ -875,7 +875,7 @@ Sub RunBsp(sysFlags as object, sysInfo as object, diagnosticCodes as object, sys
     BSP.AddBrightWallConfiguratorServerHandlers(BSP.brightWallConfiguratorServer)
   endif
   
-  InitializePlaybackEventsTimer()
+  BSP.InitializePlaybackEventsTimer()
 
   BSP.EventLoop()
   
@@ -1325,6 +1325,7 @@ Sub CheckBLCStatus(controlPort as object, channel% as integer)
     BSP.ExecuteSetAllAudioOutputsCommand = ExecuteSetAllAudioOutputsCommand
 
     BSP.EventLoop = EventLoop
+    BSP.InitializePlaybackEventsTimer = InitializePlaybackEventsTimer
     BSP.RecordEvent = RecordEvent
     BSP.PlaybackEvent = ExecutePlaybackEvent
     BSP.GetControlEvent = GetControlEvent
@@ -10697,6 +10698,34 @@ Sub InitializeZoneCommon(msgPort as object)
   
 end sub
 
+
+Function BuildUserData(userDataType as string, id as string) as object
+  userData = {}
+  userData.type = userDataType
+  userData.id = id
+  return userData
+end function
+
+
+Function UserDataMatches(userData as object, userDataType as string, id as string) as boolean
+
+  if type(userData) <> "roAssociativeArray" then
+    return false
+  endif
+
+  if not IsString(userData.type) or userData.type <> userDataType then
+    return false
+  endif
+
+  if not IsString(userData.id) or userData.id <> id then
+    return false
+  endif
+
+  return true
+
+end function
+
+
 ' m is the zone
 Function GetBrightWallRectangle(rectangleWidth as integer, rectangleHeight as integer) as object
 
@@ -11432,7 +11461,7 @@ Function MediaItemEventHandler(event as object, stateData as object) as object
     
     if type(m.mstimeoutEvent) = "roAssociativeArray" then
       if type(m.mstimeoutTimer) = "roTimer" then
-        if (event.GetUserData() = m.mstimeoutTimer.GetUserData()) then
+        if UserDataMatches(event.GetUserData(), "zoneTimer", m.id$) then
           m.bsp.logging.WriteEventLogEntry(m.stateMachine, m.id$, "timer", "", "1")
           return m.ExecuteTransition(m.mstimeoutEvent, stateData, "")
         end if
@@ -12179,7 +12208,8 @@ Sub LaunchTimer()
     
     timer = CreateObject("roTimer")
     timer.SetPort(m.stateMachine.msgPort)
-    timer.SetUserData(m.stateMachine.id$)
+    userData = BuildUserData("zoneTimer", m.stateMachine.id$)
+    timer.SetUserData(userData)
     timer.SetElapsed(0, m.mstimeoutValue%)
     timer.Start()
     m.mstimeoutTimer = timer
@@ -33393,7 +33423,7 @@ Sub InitializeRecordPlayback()
   globalAA = getGlobalAA()
 
   globalAA.recordEventsMode = GetBoolFromString(globalAA.registrySection.Read("recordEvents"), false)
-  globalAA.playbackEventsMode = GetBoolFromString(globalAA.registrySection.Read("playbackEventsMode"), false)
+  globalAA.playbackEventsMode = GetBoolFromString(globalAA.registrySection.Read("playbackEvents"), false)
 
   if globalAA.recordEventsMode then
 
@@ -33510,8 +33540,8 @@ Sub InitializePlaybackEventsTimer()
   if globalAA.playbackEventsMode then
     globalAA.playbackEventIndex = 0
     globalAA.playbackEventsTimer = CreateObject("roTimer")
-    globalAA.playbackEventsTimer.SetUserData("playbackEventsTimer")
-    globalAA.playbackEventsTimer.SetPort(BSP.msgPort)
+    globalAA.playbackEventsTimer.SetUserData(BuildUserData("playbackEventsTimer", ""))
+    globalAA.playbackEventsTimer.SetPort(m.msgPort)
     globalAA.playbackEventsTimer.SetElapsed(0, globalAA.playbackEvents[0].timeSinceLastEvent)
     globalAA.playbackEventsTimer.Start()
   endif
@@ -33586,7 +33616,7 @@ Function ExecutePlaybackEvent(event) as boolean
 
   eventHandled = false
 
-  if type(event) = "roTimerEvent" and event.GetUserData() = "playbackEventsTimer" then
+  if type(event) = "roTimerEvent" and UserDataMatches(event.GetUserData(), "playbackEventsTimer", "") then
 
     playbackEvent = globalAA.playbackEvents[globalAA.playbackEventIndex]
     
