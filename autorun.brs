@@ -5,9 +5,117 @@ Sub Main()
   
   autorunVersion$ = "10.0.89" 'Bacon in development
   customAutorunVersion$ = "10.0.0"
-  
+
+  globalAA = getGlobalAA()
+
+  globalAA.recordEvents = false
+  globalAA.playbackEventsMode = true
+
+  if globalAA.recordEvents then
+
+    ' file where event files are recorded
+    globalAA.recordedEventsFile = CreateObject("roCreateFile", "recordedEvents.txt")
+    
+    st = CreateObject("roSystemTime")
+    utcDateTime = st.GetUtcDateTime()
+    autorunStartTime = utcDateTime.ToIsoString()
+
+    recordedEventsFile = globalAA.recordedEventsFile
+    recordedEventsFile.SendLine("AutorunStartTime=" + autorunStartTime)
+
+  endif
+
+  if globalAA.playbackEventsMode then
+    
+    recordedEventsFile = CreateObject("roReadFile", "recordedEvents.txt")
+    if type(recordedEventsFile) <> "roReadFile" then
+      stop
+    endif
+
+    autorunStartTimeLine = recordedEventsFile.ReadLine()
+    autorunStartTimeRegex = CreateObject("roRegEx", "=", "i")
+    autorunStartTimeTokens = autorunStartTimeRegex.split(autorunStartTimeLine)
+    if autorunStartTimeTokens.Count() = 2 then
+      globalAA.autorunStartTimestamp = autorunStartTimeTokens[1]       
+    else
+      stop
+    endif
+
+    playbackEvents = []
+    globalAA.playbackEvents = playbackEvents
+
+    regex = CreateObject("roRegEx", "!!!!", "i")
+
+    atEof = false    
+    while not atEof
+
+      recordedEvent = recordedEventsFile.ReadLine()
+      atEof = recordedEventsFile.AtEof()
+      if not atEof then
+        
+        tokens = regex.split(recordedEvent)
+
+        numTokens = tokens.count()
+
+        if numTokens > 1 then
+
+          if tokens[0].mid(0, 2) <> "T=" or tokens[1].mid(0, 2) <> "E=" then
+            stop
+          endif
+
+          playbackEvent = {}
+
+          eventTimestamp = tokens[0].mid(2)         
+      
+          playbackEvent.eventTimestamp = eventTimestamp
+
+          if playbackEvents.Count() = 0 then
+            lastEventTimestamp = globalAA.autorunStartTimestamp          
+          else
+            lastEventTimestamp = playbackEvents[playbackEvents.Count() - 1].eventTimestamp
+          endif
+
+          lastEventDateTime = CreateObject("roDateTime")
+          lastEventDateTime.FromIsoString(lastEventTimestamp)
+          lastEventSecondsSinceEpoch = lastEventDateTime.ToSecondsSinceEpoch()
+          lastEventMsec = lastEventDateTime.GetMillisecond()
+
+          currentEventTimestamp = eventTimestamp
+          currentEventDateTime = CreateObject("roDateTime")
+          currentEventDateTime.FromIsoString(currentEventTimestamp)
+          currentEventSecondsSinceEpoch = currentEventDateTime.ToSecondsSinceEpoch()
+          currentEventMsec = currentEventDateTime.GetMillisecond()
+
+          secondsSinceLastEvent = currentEventSecondsSinceEpoch - lastEventSecondsSinceEpoch
+          playbackEvent.timeSinceLastEvent = (secondsSinceLastEvent * 1000) + currentEventMsec - lastEventMsec
+
+          playbackEvent.eventType = tokens[1].mid(2)
+
+          if numTokens > 2 then
+            if tokens[2].mid(0, 2) = "D=" then
+              playbackEvent.eventData = tokens[2].mid(2)
+            endif
+          endif
+
+          if numTokens > 3 then
+            if tokens[3].mid(0, 2) = "U=" then
+              playbackEvent.userData = tokens[3].mid(2)
+            endif
+          endif
+
+          playbackEvents.push(playbackEvent)
+
+        endif
+
+      endif
+
+    end while
+
+    globalAA.recordedEventsFile = recordedEventsFile
+
+  endif
+
   ' create global registry section to be used throughout script
-  globalAA = GetGlobalAA()
   globalAA.registrySection = CreateObject("roRegistrySection", "networking")
   if type(globalAA.registrySection) <> "roRegistrySection" then
     stop
@@ -873,6 +981,15 @@ Sub RunBsp(sysFlags as object, sysInfo as object, diagnosticCodes as object, sys
     BSP.AddBrightWallConfiguratorServerHandlers(BSP.brightWallConfiguratorServer)
   endif
   
+  if globalAA.playbackEventsMode then
+    globalAA.playbackEventIndex = 0
+    globalAA.playbackEventsTimer = CreateObject("roTimer")
+    globalAA.playbackEventsTimer.SetUserData("playbackEventsTimer")
+    globalAA.playbackEventsTimer.SetPort(BSP.msgPort)
+    globalAA.playbackEventsTimer.SetElapsed(0, globalAA.playbackEvents[0].timeSinceLastEvent)
+    globalAA.playbackEventsTimer.Start()
+  endif
+
   BSP.EventLoop()
   
 end sub
@@ -1322,6 +1439,8 @@ Sub CheckBLCStatus(controlPort as object, channel% as integer)
 
     BSP.EventLoop = EventLoop
     
+    BSP.GetControlEvent = GetControlEvent
+
     BSP.SetAudioMode = SetAudioMode
     BSP.UnmuteAllAudio = UnmuteAllAudio
     BSP.UnmuteAudioConnector = UnmuteAudioConnector
@@ -11425,7 +11544,7 @@ Function MediaItemEventHandler(event as object, stateData as object) as object
     
     if type(m.mstimeoutEvent) = "roAssociativeArray" then
       if type(m.mstimeoutTimer) = "roTimer" then
-        if stri(event.GetSourceIdentity()) = stri(m.mstimeoutTimer.GetIdentity()) then
+        if (event.GetUserData() = m.mstimeoutTimer.GetUserData()) then
           m.bsp.logging.WriteEventLogEntry(m.stateMachine, m.id$, "timer", "", "1")
           return m.ExecuteTransition(m.mstimeoutEvent, stateData, "")
         end if
@@ -12172,6 +12291,7 @@ Sub LaunchTimer()
     
     timer = CreateObject("roTimer")
     timer.SetPort(m.stateMachine.msgPort)
+    timer.SetUserData(m.stateMachine.id$)
     timer.SetElapsed(0, m.mstimeoutValue%)
     timer.Start()
     m.mstimeoutTimer = timer
@@ -12739,7 +12859,8 @@ Sub InitializeVideoZoneObjects()
   
   videoPlayer = CreateObject("roVideoPlayer")
   if type(videoPlayer) <> "roVideoPlayer" then print "videoPlayer creation failed" : stop
-  
+  videoPlayer.SetUserData(zoneHSM.id$)
+
   if CanRotateByScreen(m.bsp.sign, {}) then
     ' no need to rotate per zone if already rotated by screen
   else if IsPortraitBottomLeft(m.bsp.sign.monitorOrientation) then
@@ -13126,7 +13247,7 @@ Function STVideoPlayingEventHandler(event as object, stateData as object) as obj
       
     end if
     
-  else if type(event) = "roVideoEvent" and event.GetSourceIdentity() = m.stateMachine.videoPlayer.GetIdentity() then
+  else if type(event) = "roVideoEvent" and event.GetUserData() = m.stateMachine.videoPlayer.GetUserData() then
     if event.GetInt() = MEDIA_END then
       m.bsp.diagnostics.PrintDebug("Video Event" + stri(event.GetInt()))
       m.bsp.logging.WriteEventLogEntry(m.stateMachine, m.id$, "mediaEnd", "", "1")
@@ -22924,45 +23045,59 @@ end function
 
 
 Sub BPEventHandler(event as object)
-  
+
   if m.state$ = "ButtonUp" then
-    
-    if type(event) = "roControlDown" and stri(event.GetSourceIdentity()) = m.inputPortIdentity$ and m.buttonNumber% = event.GetInt() then
-      
-      m.bsp.diagnostics.PrintDebug("BP control down" + str(event.GetInt()))
-      
-      bpControlDown = { }
-      bpControlDown["EventType"] = "BPControlDown"
-      bpControlDown["ButtonPanelIndex"] = StripLeadingSpaces(str(m.buttonPanelIndex%))
-      bpControlDown["ButtonNumber"] = StripLeadingSpaces(str(event.GetInt()))
-      m.msgPort.PostMessage(bpControlDown)
-      
-      if m.configuration$ = "pressContinuous" then
-        m.timer = CreateObject("roTimer")
-        m.timer.SetPort(m.msgPort)
-        m.timer.SetElapsed(0, m.initialHoldoff%)
-        m.timer.Start()
+
+    if type(event) = "roControlDown" then
+
+      buttonPanelIndex$ = StripLeadingSpaces(stri(m.buttonPanelIndex%))
+      userData = "TouchBoard-" + buttonPanelIndex$ + "-GPIO"
+
+      if event.GetUserData() = userData and m.buttonNumber% = event.GetInt() then
+
+        m.bsp.diagnostics.PrintDebug("BP control down" + str(event.GetInt()))
+        
+        bpControlDown = { }
+        bpControlDown["EventType"] = "BPControlDown"
+        bpControlDown["ButtonPanelIndex"] = StripLeadingSpaces(str(m.buttonPanelIndex%))
+        bpControlDown["ButtonNumber"] = StripLeadingSpaces(str(event.GetInt()))
+        m.msgPort.PostMessage(bpControlDown)
+        
+        if m.configuration$ = "pressContinuous" then
+          m.timer = CreateObject("roTimer")
+          m.timer.SetPort(m.msgPort)
+          m.timer.SetElapsed(0, m.initialHoldoff%)
+          m.timer.Start()
+        end if
+        
+        m.state$ = "ButtonDown"
+
       end if
-      
-      m.state$ = "ButtonDown"
-      
+
     end if
     
   else
     
-    if type(event) = "roControlUp" and stri(event.GetSourceIdentity()) = m.inputPortIdentity$ and m.buttonNumber% = event.GetInt() then
+    if type(event) = "roControlUp" then
+
+      buttonPanelIndex$ = StripLeadingSpaces(stri(m.buttonPanelIndex%))
+      userData = "TouchBoard-" + buttonPanelIndex$ + "-GPIO"
+
+      if event.GetUserData() = userData and m.buttonNumber% = event.GetInt() then
       
-      m.bsp.diagnostics.PrintDebug("BP control up" + str(event.GetInt()))
-      
-      ' if continuous, stop and destroy the timer
-      if type(m.timer) = "roTimer" then
-        m.timer.Stop()
-        m.timer = invalid
-      end if
-      
-      m.state$ = "ButtonUp"
-      
-      ' else check for repeat timeout
+        m.bsp.diagnostics.PrintDebug("BP control up" + str(event.GetInt()))
+        
+        ' if continuous, stop and destroy the timer
+        if type(m.timer) = "roTimer" then
+          m.timer.Stop()
+          m.timer = invalid
+        end if
+        
+        m.state$ = "ButtonUp"
+
+      endif
+  
+    ' else check for repeat timeout
     else if type(event) = "roTimerEvent" and type(m.timer) = "roTimer" then
       if stri(event.GetSourceIdentity()) = stri(m.timer.GetIdentity()) then
         
@@ -23144,85 +23279,197 @@ Sub EventLoop()
     m.diagnostics.PrintTimestamp()
     m.diagnostics.PrintDebug("msg received - type=" + type(msg))
 
-    if type(msg) = "roControlDown" and stri(msg.GetSourceIdentity()) = stri(m.svcPort.GetIdentity()) then
-      if msg.GetInt() = 12 then
-        stop
-      end if
-    end if
-    
+    globalAA = getGlobalAA()
+
     eventHandled = false
+
+    if globalAA.recordEvents then
+
+      print "EVENT TYPE"
+      print type(msg)
+
+      event = msg
+
+      if RecordEvent(type(event)) then
+
+        utcDateTime = m.systemTime.GetUtcDateTime()
+        eventDateTime = utcDateTime.ToIsoString()
+
+        ' JSON instead of text?
+        'recordedEvent = {}
+        'recordedEvent.timestamp = m.systemTime.GetLocalDateTime().GetString()
+
+        ' userData????
+
+        recordedEventsFile = globalAA.recordedEventsFile
+
+        if type(event) = "roControlDown" then
+          gpioNum = event.GetInt()
+          recordedEventsFile.SendLine("T=" + eventDateTime + "!!!!" + "E=roControlDown" + "!!!!" + "D=" + stri(gpioNum) + "!!!!" + "U=" + event.GetUserData())
+        else if type(event) = "roControlUp" then
+          gpioNum = event.GetInt()
+          recordedEventsFile.SendLine("T=" + eventDateTime + "!!!!" + "E=roControlUp" + "!!!!" + "D=" + stri(gpioNum) + "!!!!" + "U=" + event.GetUserData())
+        else if type(event) = "bp900AUserEvent" then
+          stop
+        else if type(event) = "roStorageAttached" then
+          storagePath$ = event.GetString()
+          recordedEventsFile.SendLine("T=" + eventDateTime + "!!!!" + "E=roStorageAttached" + "!!!!" + "D=" + storagePath$)
+        else if type(event) = "roHttpEvent" then
+          recordedEventsFile.SendLine("T=" + eventDateTime + "!!!!" + "E=roHttpEvent")
+        else if type(event) = "roControlCloudMessageEvent" then
+          recordedEventsFile.SendLine("T=" + eventDateTime + "!!!!" + "E=roControlCloudMessageEvent")
+        else
+          stop
+        endif
+
+        recordedEventsFile.AsyncFlush()
     
-    for each scriptPlugin in m.scriptPlugins
-      '			ERR_NORMAL_END = &hFC
-      if scriptPlugin.plugin = invalid then
-        m.diagnostics.PrintDebug("Plugin for " + scriptPlugin.name$ + " is invalid.")
-        m.logging.WriteDiagnosticLogEntry(m.diagnosticCodes.EVENT_SCRIPT_PLUGIN_FAILURE, scriptPlugin.name$)
-      else
-        eventHandled = scriptPlugin.plugin.ProcessEvent(msg)
-        if eventHandled then
-          exit for
+      endif
+
+    else if globalAA.playbackEventsMode then
+
+      if type(msg) = "roTimerEvent" and msg.GetUserData() = "playbackEventsTimer" then
+
+        playbackEvent = globalAA.playbackEvents[globalAA.playbackEventIndex]
+        
+        eventType = playbackEvent.eventType
+        if playbackEvent.eventData <> invalid then
+          eventData = playbackEvent.eventData
+        endif
+
+        if eventType = "roControlDown" or eventType = "roControlUp" then        
+          ev = m.GetControlEvent(eventType, playbackEvent.userData, int(val(playbackEvent.eventData)))
+          m.msgPort.PostMessage(ev)
+          eventHandled = true
+        endif
+
+        globalAA.playbackEventIndex = globalAA.playbackEventIndex + 1
+
+        if globalAA.playbackEventIndex < globalAA.playbackEvents.Count() then
+          msecUntilNextEvent = globalAA.playbackEvents[globalAA.playbackEventIndex].timeSinceLastEvent
+          globalAA.playbackEventsTimer.SetElapsed(0, msecUntilNextEvent)
+          globalAA.playbackEventsTimer.Start()
+        endif
+        
+      endif
+    endif
+
+
+    if not eventHandled then
+
+      if type(msg) = "roControlDown" and stri(msg.GetSourceIdentity()) = stri(m.svcPort.GetIdentity()) then
+        if msg.GetInt() = 12 then
+          stop
         end if
       end if
-    next
     
-    ' don't propagate the event if it was handled by a plugin
-    if not eventHandled then
-      
-      if type(msg) = "roSqliteEvent" then
-        if msg.GetSqlResult() <> SQLITE_COMPLETE then
-          m.diagnostics.PrintDebug("roSqliteEvent.GetSqlResult() <> SQLITE_COMPLETE")
-          if type(msg.GetSqlResult()) = "roInt" then
-            m.diagnostics.PrintDebug("roSqliteEvent.GetSqlResult() = " + stri(roSqliteEvent.GetSqlResult()))
+      for each scriptPlugin in m.scriptPlugins
+        '			ERR_NORMAL_END = &hFC
+        if scriptPlugin.plugin = invalid then
+          m.diagnostics.PrintDebug("Plugin for " + scriptPlugin.name$ + " is invalid.")
+          m.logging.WriteDiagnosticLogEntry(m.diagnosticCodes.EVENT_SCRIPT_PLUGIN_FAILURE, scriptPlugin.name$)
+        else
+          eventHandled = scriptPlugin.plugin.ProcessEvent(msg)
+          if eventHandled then
+            exit for
           end if
         end if
-      end if
-
-      if type(msg) = "roHttpEvent" then
+      next
+    
+      ' don't propagate the event if it was handled by a plugin
+      if not eventHandled then
         
-        userdata = msg.GetUserData()
-        if type(userdata) = "roAssociativeArray" and type(userdata.HandleEvent) = "roFunction" then
-          userData.HandleEvent(userData, msg)
+        if type(msg) = "roSqliteEvent" then
+          if msg.GetSqlResult() <> SQLITE_COMPLETE then
+            m.diagnostics.PrintDebug("roSqliteEvent.GetSqlResult() <> SQLITE_COMPLETE")
+            if type(msg.GetSqlResult()) = "roInt" then
+              m.diagnostics.PrintDebug("roSqliteEvent.GetSqlResult() = " + stri(roSqliteEvent.GetSqlResult()))
+            end if
+          end if
         end if
 
-      else
-        
-        m.playerHSM.Dispatch(msg)
-        
-        for buttonPanelIndex% = 0 to 3
-          for i% = 0 to 10
-            if type(m.bpSM[buttonPanelIndex%, i%]) = "roAssociativeArray" then
-              m.bpSM[buttonPanelIndex%, i%].EventHandler(msg)
+        if type(msg) = "roHttpEvent" then
+
+          userdata = msg.GetUserData()
+          if type(userdata) = "roAssociativeArray" and type(userdata.HandleEvent) = "roFunction" then
+            userData.HandleEvent(userData, msg)
+          end if
+
+        else
+          
+          m.playerHSM.Dispatch(msg)
+          
+          for buttonPanelIndex% = 0 to 3
+            for i% = 0 to 10
+              if type(m.bpSM[buttonPanelIndex%, i%]) = "roAssociativeArray" then
+                m.bpSM[buttonPanelIndex%, i%].EventHandler(msg)
+              end if
+            next
+          next
+          
+          for i% = 0 to 7
+            if type(m.gpioSM[i%]) = "roAssociativeArray" then
+              m.gpioSM[i%].EventHandler(msg)
             end if
           next
-        next
-        
-        for i% = 0 to 7
-          if type(m.gpioSM[i%]) = "roAssociativeArray" then
-            m.gpioSM[i%].EventHandler(msg)
+          
+          if type(m.sign) = "roAssociativeArray" then
+            
+            numZones% = m.sign.zonesHSM.Count()
+            for i% = 0 to numZones% - 1
+              m.dispatchingZone = m.sign.zonesHSM[i%]
+              m.dispatchingZone.Dispatch(msg)
+            next
+            
           end if
-        next
-        
-        if type(m.sign) = "roAssociativeArray" then
           
-          numZones% = m.sign.zonesHSM.Count()
-          for i% = 0 to numZones% - 1
-            m.dispatchingZone = m.sign.zonesHSM[i%]
-            m.dispatchingZone.Dispatch(msg)
-          next
+          if m.networkingActive then
+            m.networkingHSM.Dispatch(msg)
+          end if
           
-        end if
-        
-        if m.networkingActive then
-          m.networkingHSM.Dispatch(msg)
         end if
         
       end if
-      
-    end if
     
+    endif
+
   end while
   
 end sub
+
+
+Function GetInt() as integer
+  stop
+  return m.EventData
+end function
+
+
+Function GetControlEvent(eventType as string, userData as string, eventData as integer) as object
+
+  ev = CreateObject(eventType)
+  ev.SetUserData(userData)
+  ev.SetInt(eventData)
+  return ev
+
+end function
+
+
+Function RecordEvent(eventType as string) as boolean
+
+  if eventType = "roControlDown" or eventType = "roControlUp" or eventType = "bp900AUserEvent" then 
+    return true
+  endif
+  
+  ' do not record
+  '   roStorageAttached - ambiguous
+  '   roVideoEvent
+  '   roTimerEvent
+  '   roHttpEvent - ambiguous?
+  '   roControlCloudMessageEvent
+
+  return false
+
+end function
 
 
 Function ExecuteSwitchPresentationCommand(presentationName$ as string) as boolean
