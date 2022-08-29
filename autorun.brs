@@ -11,110 +11,8 @@ Sub Main()
   globalAA.recordEvents = false
   globalAA.playbackEventsMode = true
 
-  if globalAA.recordEvents then
-
-    ' file where event files are recorded
-    globalAA.recordedEventsFile = CreateObject("roCreateFile", "recordedEvents.txt")
-    
-    st = CreateObject("roSystemTime")
-    utcDateTime = st.GetUtcDateTime()
-    autorunStartTime = utcDateTime.ToIsoString()
-
-    recordedEventsFile = globalAA.recordedEventsFile
-    recordedEventsFile.SendLine("AutorunStartTime=" + autorunStartTime)
-
-  endif
-
-  if globalAA.playbackEventsMode then
-    
-    recordedEventsFile = CreateObject("roReadFile", "recordedEvents.txt")
-    if type(recordedEventsFile) <> "roReadFile" then
-      stop
-    endif
-
-    autorunStartTimeLine = recordedEventsFile.ReadLine()
-    autorunStartTimeRegex = CreateObject("roRegEx", "=", "i")
-    autorunStartTimeTokens = autorunStartTimeRegex.split(autorunStartTimeLine)
-    if autorunStartTimeTokens.Count() = 2 then
-      globalAA.autorunStartTimestamp = autorunStartTimeTokens[1]       
-    else
-      stop
-    endif
-
-    playbackEvents = []
-    globalAA.playbackEvents = playbackEvents
-
-    regex = CreateObject("roRegEx", "!!!!", "i")
-
-    atEof = false    
-    while not atEof
-
-      recordedEvent = recordedEventsFile.ReadLine()
-      atEof = recordedEventsFile.AtEof()
-      if not atEof then
-        
-        tokens = regex.split(recordedEvent)
-
-        numTokens = tokens.count()
-
-        if numTokens > 1 then
-
-          if tokens[0].mid(0, 2) <> "T=" or tokens[1].mid(0, 2) <> "E=" then
-            stop
-          endif
-
-          playbackEvent = {}
-
-          eventTimestamp = tokens[0].mid(2)         
-      
-          playbackEvent.eventTimestamp = eventTimestamp
-
-          if playbackEvents.Count() = 0 then
-            lastEventTimestamp = globalAA.autorunStartTimestamp          
-          else
-            lastEventTimestamp = playbackEvents[playbackEvents.Count() - 1].eventTimestamp
-          endif
-
-          lastEventDateTime = CreateObject("roDateTime")
-          lastEventDateTime.FromIsoString(lastEventTimestamp)
-          lastEventSecondsSinceEpoch = lastEventDateTime.ToSecondsSinceEpoch()
-          lastEventMsec = lastEventDateTime.GetMillisecond()
-
-          currentEventTimestamp = eventTimestamp
-          currentEventDateTime = CreateObject("roDateTime")
-          currentEventDateTime.FromIsoString(currentEventTimestamp)
-          currentEventSecondsSinceEpoch = currentEventDateTime.ToSecondsSinceEpoch()
-          currentEventMsec = currentEventDateTime.GetMillisecond()
-
-          secondsSinceLastEvent = currentEventSecondsSinceEpoch - lastEventSecondsSinceEpoch
-          playbackEvent.timeSinceLastEvent = (secondsSinceLastEvent * 1000) + currentEventMsec - lastEventMsec
-
-          playbackEvent.eventType = tokens[1].mid(2)
-
-          if numTokens > 2 then
-            if tokens[2].mid(0, 2) = "D=" then
-              playbackEvent.eventData = tokens[2].mid(2)
-            endif
-          endif
-
-          if numTokens > 3 then
-            if tokens[3].mid(0, 2) = "U=" then
-              playbackEvent.userData = tokens[3].mid(2)
-            endif
-          endif
-
-          playbackEvents.push(playbackEvent)
-
-        endif
-
-      endif
-
-    end while
-
-    globalAA.recordedEventsFile = recordedEventsFile
-
-  endif
-
+  InitializeRecordPlayback()
+  
   ' create global registry section to be used throughout script
   globalAA.registrySection = CreateObject("roRegistrySection", "networking")
   if type(globalAA.registrySection) <> "roRegistrySection" then
@@ -33500,6 +33398,118 @@ end sub
 
 
 'region Record / Playback
+
+Sub InitializeRecordPlayback()
+
+  globalAA = getGlobalAA()
+
+  if globalAA.recordEvents then
+
+    ' file where event files are recorded
+    globalAA.recordedEventsFile = CreateObject("roCreateFile", "recordedEvents.txt")
+    
+    st = CreateObject("roSystemTime")
+    utcDateTime = st.GetUtcDateTime()
+    autorunStartTime = utcDateTime.ToIsoString()
+
+    recordedEventsFile = globalAA.recordedEventsFile
+    recordedEventsFile.SendLine("AutorunStartTime=" + autorunStartTime)
+
+  endif
+
+  if globalAA.playbackEventsMode then
+    
+    recordedEventsFile = CreateObject("roReadFile", "recordedEvents.txt")
+    if type(recordedEventsFile) <> "roReadFile" then
+      stop
+    endif
+
+    autorunStartTimeLine = recordedEventsFile.ReadLine()
+    autorunStartTimeRegex = CreateObject("roRegEx", "=", "i")
+    autorunStartTimeTokens = autorunStartTimeRegex.split(autorunStartTimeLine)
+    if autorunStartTimeTokens.Count() = 2 then
+      globalAA.autorunStartTimestamp = autorunStartTimeTokens[1]       
+    else
+      stop
+    endif
+
+    playbackEvents = []
+    globalAA.playbackEvents = playbackEvents
+
+    regex = CreateObject("roRegEx", "!!!!", "i")
+
+    atEof = false    
+    while not atEof
+
+      recordedEvent = recordedEventsFile.ReadLine()
+      atEof = recordedEventsFile.AtEof()
+      if not atEof then
+        
+        tokens = regex.split(recordedEvent)
+
+        numTokens = tokens.count()
+
+        if numTokens > 1 then
+
+          if tokens[0].mid(0, 2) <> "T=" or tokens[1].mid(0, 2) <> "E=" then
+            stop
+          endif
+
+          playbackEvent = {}
+
+          eventTimestamp = tokens[0].mid(2)         
+      
+          playbackEvent.eventTimestamp = eventTimestamp
+
+          if playbackEvents.Count() = 0 then
+            lastEventTimestamp = globalAA.autorunStartTimestamp          
+          else
+            lastEventTimestamp = playbackEvents[playbackEvents.Count() - 1].eventTimestamp
+          endif
+
+          lastEventDateTime = CreateObject("roDateTime")
+          lastEventDateTime.FromIsoString(lastEventTimestamp)
+          lastEventSecondsSinceEpoch = lastEventDateTime.ToSecondsSinceEpoch()
+          lastEventMsec = lastEventDateTime.GetMillisecond()
+
+          currentEventTimestamp = eventTimestamp
+          currentEventDateTime = CreateObject("roDateTime")
+          currentEventDateTime.FromIsoString(currentEventTimestamp)
+          currentEventSecondsSinceEpoch = currentEventDateTime.ToSecondsSinceEpoch()
+          currentEventMsec = currentEventDateTime.GetMillisecond()
+
+          secondsSinceLastEvent = currentEventSecondsSinceEpoch - lastEventSecondsSinceEpoch
+          playbackEvent.timeSinceLastEvent = (secondsSinceLastEvent * 1000) + currentEventMsec - lastEventMsec
+
+          playbackEvent.eventType = tokens[1].mid(2)
+
+          if numTokens > 2 then
+            if tokens[2].mid(0, 2) = "D=" then
+              playbackEvent.eventData = tokens[2].mid(2)
+            endif
+          endif
+
+          if numTokens > 3 then
+            if tokens[3].mid(0, 2) = "U=" then
+              playbackEvent.userData = tokens[3].mid(2)
+            endif
+          endif
+
+          playbackEvents.push(playbackEvent)
+
+        endif
+
+      endif
+
+    end while
+
+    globalAA.recordedEventsFile = recordedEventsFile
+
+  endif
+
+
+end sub
+
 
 Function GetControlEvent(eventType as string, userData as string, eventData as integer) as object
 
