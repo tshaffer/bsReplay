@@ -8,11 +8,6 @@ Sub Main()
 
   globalAA = getGlobalAA()
 
-  globalAA.recordEvents = false
-  globalAA.playbackEventsMode = true
-
-  InitializeRecordPlayback()
-  
   ' create global registry section to be used throughout script
   globalAA.registrySection = CreateObject("roRegistrySection", "networking")
   if type(globalAA.registrySection) <> "roRegistrySection" then
@@ -26,6 +21,7 @@ Sub Main()
   InitializeSysInfo(modelObject, autorunVersion$, customAutorunVersion$)
   InitSupervisorSupport()
   LoadRegistrySettings()
+  InitializeRecordPlayback()
   InitializeSyncSpecAndSettings()
 
   debugParams = EnableDebugging()
@@ -383,7 +379,7 @@ end sub
 
 ' Registry settings that are used by both settings and non settings code; i.e., not known to supervisor
 Sub ReadCachedRegistrySettings(registrySection as object, registrySettings as object)
-  
+
   registrySettings.setupSplashScreenEnabled = registrySection.Read("susse")
   
   registrySettings.OnlyDownloadIfCached$ = registrySection.Read("OnlyDownloadIfCached")
@@ -23182,7 +23178,7 @@ Sub EventLoop()
 
     eventHandled = false
 
-    if globalAA.recordEvents then   
+    if globalAA.recordEventsMode then   
       if IsEventRecordable(type(msg)) then
         m.RecordEvent(msg)
       endif
@@ -33403,7 +33399,10 @@ Sub InitializeRecordPlayback()
 
   globalAA = getGlobalAA()
 
-  if globalAA.recordEvents then
+  globalAA.recordEventsMode = GetBoolFromString(globalAA.registrySection.Read("recordEvents"), false)
+  globalAA.playbackEventsMode = GetBoolFromString(globalAA.registrySection.Read("playbackEventsMode"), false)
+
+  if globalAA.recordEventsMode then
 
     ' file where event files are recorded
     globalAA.recordedEventsFile = CreateObject("roCreateFile", "recordedEvents.txt")
