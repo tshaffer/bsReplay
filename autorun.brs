@@ -12777,8 +12777,8 @@ Sub InitializeVideoZoneObjects()
   
   videoPlayer = CreateObject("roVideoPlayer")
   if type(videoPlayer) <> "roVideoPlayer" then print "videoPlayer creation failed" : stop
-  videoPlayer.SetUserData(zoneHSM.id$)
-
+  ' TEDTODOREPLAY - I think that the videoPlayer's userData is always overwritten when videoplayback is launched.
+  videoPlayer.SetUserData(BuildUserData("zoneVideoPlayer", zoneHSM.id$))
   if CanRotateByScreen(m.bsp.sign, {}) then
     ' no need to rotate per zone if already rotated by screen
   else if IsPortraitBottomLeft(m.bsp.sign.monitorOrientation) then
@@ -13165,7 +13165,7 @@ Function STVideoPlayingEventHandler(event as object, stateData as object) as obj
       
     end if
     
-  else if type(event) = "roVideoEvent" and event.GetUserData() = m.stateMachine.videoPlayer.GetUserData() then
+  else if type(event) = "roVideoEvent" and UserDataMatches(event.GetUserData(), "zoneVideoPlayer", m.id$) then
     if event.GetInt() = MEDIA_END then
       m.bsp.diagnostics.PrintDebug("Video Event" + stri(event.GetInt()))
       m.bsp.logging.WriteEventLogEntry(m.stateMachine, m.id$, "mediaEnd", "", "1")
@@ -14317,7 +14317,8 @@ Sub PlayVideo(executeEntryCmds as boolean, disableLoopMode as boolean)
       aa.Decoder = m.stateMachine.mosaicDecoderName
     end if
 
-    m.stateMachine.videoPlayer.setUserData(m.id$)
+      ' TEDTODOREPLAY - here, the id is the state, not the zone.
+    m.stateMachine.videoPlayer.setUserData(BuildUserData("zoneVideoPlayer", m.id$))
 
     ok = m.stateMachine.videoPlayer.PlayFile(aa)
     
@@ -14802,7 +14803,8 @@ Function STLiveVideoPlayingEventHandler(event as object, stateData as object) as
         endif
       endif
 
-      m.stateMachine.videoPlayer.setUserData(m.id$)
+      ' TEDTODOREPLAY - here, the id is the state, not the zone.
+      m.stateMachine.videoPlayer.setUserData(BuildUserData("zoneVideoPlayer", m.id$))
 
       ok = m.stateMachine.videoPlayer.PlayFile(aa)
       
