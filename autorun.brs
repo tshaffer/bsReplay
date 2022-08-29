@@ -875,14 +875,7 @@ Sub RunBsp(sysFlags as object, sysInfo as object, diagnosticCodes as object, sys
     BSP.AddBrightWallConfiguratorServerHandlers(BSP.brightWallConfiguratorServer)
   endif
   
-  if globalAA.playbackEventsMode then
-    globalAA.playbackEventIndex = 0
-    globalAA.playbackEventsTimer = CreateObject("roTimer")
-    globalAA.playbackEventsTimer.SetUserData("playbackEventsTimer")
-    globalAA.playbackEventsTimer.SetPort(BSP.msgPort)
-    globalAA.playbackEventsTimer.SetElapsed(0, globalAA.playbackEvents[0].timeSinceLastEvent)
-    globalAA.playbackEventsTimer.Start()
-  endif
+  InitializePlaybackEventsTimer()
 
   BSP.EventLoop()
   
@@ -33506,6 +33499,22 @@ Sub InitializeRecordPlayback()
 
   endif
 
+
+end sub
+
+
+Sub InitializePlaybackEventsTimer()
+
+  globalAA = getGlobalAA()
+
+  if globalAA.playbackEventsMode then
+    globalAA.playbackEventIndex = 0
+    globalAA.playbackEventsTimer = CreateObject("roTimer")
+    globalAA.playbackEventsTimer.SetUserData("playbackEventsTimer")
+    globalAA.playbackEventsTimer.SetPort(BSP.msgPort)
+    globalAA.playbackEventsTimer.SetElapsed(0, globalAA.playbackEvents[0].timeSinceLastEvent)
+    globalAA.playbackEventsTimer.Start()
+  endif
 
 end sub
 
